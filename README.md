@@ -1,5 +1,7 @@
 # S30 - Módulo 4. Actividad didáctica 2 Problema Parqueadero Jose hilario lopez y Dennyn Pandales
 
+<img width="311" height="100" alt="image" src="https://github.com/user-attachments/assets/cdbd74d8-ba8d-4fbd-b7d4-58e3257a210b" />
+
 ## Autores
 
 José Hilario López y Dennyn Pandales.
