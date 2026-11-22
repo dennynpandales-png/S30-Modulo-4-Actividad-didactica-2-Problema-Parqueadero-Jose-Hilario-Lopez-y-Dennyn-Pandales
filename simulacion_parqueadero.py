@@ -42,6 +42,7 @@ def simular_sistema_parqueadero(num_cajeros=3, tiempo_sim=1000, semilla=None):
             'tiempos_atencion': [],
             'tiempos_espera': [],
             'tiempos_sistema': [],
+            'perfiles': [],
             'conteo_usuarios': {t: 0 for t in tipos},
             'tiempo_ocupado': 0.0
         })
@@ -70,6 +71,7 @@ def simular_sistema_parqueadero(num_cajeros=3, tiempo_sim=1000, semilla=None):
             resultados_cajeros[c]['tiempos_atencion'].append(tiempo_servicio)
             resultados_cajeros[c]['tiempos_espera'].append(espera_cola)
             resultados_cajeros[c]['tiempos_sistema'].append(tiempo_total_sistema)
+            resultados_cajeros[c]['perfiles'].append(tipo_actual)
             resultados_cajeros[c]['conteo_usuarios'][tipo_actual] += 1
             resultados_cajeros[c]['tiempo_ocupado'] += min(tiempo_servicio, max(0.0, tiempo_sim - inicio_atencion))
 
@@ -247,6 +249,7 @@ utilizacion_cajeros     = [[] for _ in range(num_cajeros)]
 tipos_lista = list(usuarios.keys())
 conteos_por_cajero_replicas = [{t: [] for t in tipos_lista} for _ in range(num_cajeros)]
 conteos_totales_replicas    = {t: [] for t in tipos_lista}
+tiempos_por_perfil = {t: [] for t in tipos_lista}
 
 for r in range(n_replicas_definitivo):
     res = simular_sistema_parqueadero(num_cajeros=num_cajeros, tiempo_sim=tiempo_largo, semilla=500 + r)
@@ -256,6 +259,10 @@ for r in range(n_replicas_definitivo):
         atencion_est = res[c]['tiempos_atencion'][punto_corte:]
         espera_est   = res[c]['tiempos_espera'][punto_corte:]
         sistema_est  = res[c]['tiempos_sistema'][punto_corte:]
+        perfiles_est = res[c]['perfiles'][punto_corte:]
+
+        for perfil, atencion, espera, sistema in zip(perfiles_est, atencion_est, espera_est, sistema_est):
+            tiempos_por_perfil[perfil].append((atencion, espera, sistema))
 
         medias_atencion_cajeros[c].append(np.mean(atencion_est))
         medias_espera_cajeros[c].append(np.mean(espera_est))
@@ -320,6 +327,12 @@ for t in tipos_lista:
 
 print(f"TOTAL PROMEDIO DE USUARIOS ATENDIDOS EN LOS 3 CAJEROS: {total_general_usuarios:.2f} usuarios/réplica")
 
+print("\n=== TIEMPOS POR PERFIL DESPUÉS DEL CORTE TRANSITORIO ===")
+for perfil, tiempos in tiempos_por_perfil.items():
+    atencion, espera, sistema = np.mean(tiempos, axis=0)
+    print(f"{perfil.upper():10s} | Clientes: {len(tiempos)} | Atención: {atencion:.3f} min | "
+          f"Espera en cola: {espera:.3f} min | Tiempo en sistema: {sistema:.3f} min")
+
 fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 5))
 nombres_c = [r['cajero'] for r in resumen_cajeros]
 medias_c  = [r['media'] for r in resumen_cajeros]
@@ -356,17 +369,18 @@ def evaluar_escenario_cajeros(k_cajeros, n_rep, tiempo_sim, corte_transitorio):
     inter_llegada_base = sum(usuarios[t]['prob'] * usuarios[t]['llegada'] for t in tipos)
     inter_llegada_escenario = inter_llegada_base * (k_cajeros / 3.0)
 
-    wq_rep, w_rep, rho_rep = [], [], []
+    wq_rep, w_rep, rho_rep, lq_rep = [], [], [], []
 
     for r in range(n_rep):
         np.random.seed(900 + k_cajeros * 100 + r)
-        wq_caj, w_caj, rho_caj = [], [], []
+        wq_caj, w_caj, rho_caj, lq_caj = [], [], [], []
 
         for c in range(k_cajeros):
             reloj = 0.0
             libre = 0.0
             ocupado = 0.0
             lista_wq, lista_w = [], []
+            llegadas = []
 
             while True:
                 reloj += np.random.exponential(scale=inter_llegada_escenario)
@@ -375,6 +389,7 @@ def evaluar_escenario_cajeros(k_cajeros, n_rep, tiempo_sim, corte_transitorio):
                 tipo_u = np.random.choice(tipos, p=probs)
                 serv = np.random.exponential(scale=usuarios[tipo_u]['servicio'])
                 inicio = max(reloj, libre)
+                llegadas.append(reloj)
                 lista_wq.append(inicio - reloj)
                 libre = inicio + serv
                 lista_w.append(libre - reloj)
@@ -383,10 +398,20 @@ def evaluar_escenario_cajeros(k_cajeros, n_rep, tiempo_sim, corte_transitorio):
             wq_caj.append(np.mean(lista_wq[corte_transitorio:]))
             w_caj.append(np.mean(lista_w[corte_transitorio:]))
             rho_caj.append((ocupado / tiempo_sim) * 100)
+            # Cada cliente aporta el tramo de su espera dentro de la ventana observada.
+            llegadas = np.asarray(llegadas)
+            inicio_observacion = llegadas[corte_transitorio]
+            inicios_servicio = llegadas + lista_wq
+            area_cola = np.maximum(
+                0.0,
+                np.minimum(inicios_servicio, tiempo_sim) - np.maximum(llegadas, inicio_observacion),
+            ).sum()
+            lq_caj.append(area_cola / (tiempo_sim - inicio_observacion))
 
         wq_rep.append(np.mean(wq_caj))
         w_rep.append(np.mean(w_caj))
         rho_rep.append(np.mean(rho_caj))
+        lq_rep.append(np.mean(lq_caj))
 
     t_crit = stats.t.ppf(0.975, df=n_rep - 1)
     me_wq = t_crit * (np.std(wq_rep, ddof=1) / np.sqrt(n_rep))
@@ -396,7 +421,8 @@ def evaluar_escenario_cajeros(k_cajeros, n_rep, tiempo_sim, corte_transitorio):
         'k': k_cajeros,
         'Wq_media': np.mean(wq_rep), 'Wq_me': me_wq,
         'W_media': np.mean(w_rep),   'W_me': me_w,
-        'rho_media': np.mean(rho_rep)
+        'rho_media': np.mean(rho_rep),
+        'Lq_media': np.mean(lq_rep)
     }
 
 escenarios = [evaluar_escenario_cajeros(k, n_replicas_definitivo, tiempo_largo, punto_corte)
@@ -410,6 +436,7 @@ for esc in escenarios:
     veredicto  = "CUMPLE CRITERIOS" if (esc['Wq_media'] < 3.0 and esc['W_media'] < 5.0 and esc['rho_media'] <= 85.0) else "CONGESTIÓN / REQUIERE MEJORA"
 
     print(f"Escenario {esc['k']} Cajeros | Espera cola (Wq): {esc['Wq_media']:.2f} ± {esc['Wq_me']:.2f} min [{cumple_wq}] | Tiempo sistema (W): {esc['W_media']:.2f} ± {esc['W_me']:.2f} min [{cumple_w}] | Utilización (ρ): {esc['rho_media']:.1f}% [{cumple_rho}] -> {veredicto}")
+    print(f"  Longitud promedio de cola (Lq): {esc['Lq_media']:.3f} clientes por cajero")
 
 fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 5))
 etiquetas_esc = [f"{e['k']} Cajeros\n({'Actual' if e['k']==3 else 'Mejora'})" for e in escenarios]

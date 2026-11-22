@@ -90,8 +90,29 @@ El **Cajero 1** registró el menor tiempo promedio de atención, con **3.599 min
 
 ![Tiempos promedio de atención por cajero y distribución de usuarios](resultados_cajeros_usuarios.png)
 
+#### Tiempos simulados por perfil
+
+Cada promedio reúne las observaciones del perfil en los tres cajeros y las 71 réplicas, después de excluir las primeras 99 llegadas de cada cajero. El tiempo en el sistema suma la espera y el servicio.
+
+| Perfil | Observaciones | Atención (min) | Espera en cola (min) | Tiempo en el sistema (min) |
+| --- | ---: | ---: | ---: | ---: |
+| Rápido | 17522 | 0.999 | 16.052 | 17.051 |
+| Normal | 14285 | 3.015 | 15.698 | 18.713 |
+| Lento | 19322 | 4.003 | 15.873 | 19.876 |
+| Muy Lento | 19445 | 6.035 | 16.004 | 22.039 |
+
 ### Estrategia de mejora
 
 En la simulación, pasar de **3 a 5 cajeros** con la misma demanda total redujo el tiempo promedio de espera en cola de **15.36 a 3.99 min (74.0%)**. Con cinco cajeros, el tiempo promedio total en el sistema fue de **7.60 min** y la utilización fue de **46.4%**. El escenario cumple el límite de utilización del 85%, pero la espera en cola y el tiempo total siguen por encima de las metas del script (menos de 3 y 5 min, respectivamente).
 
 ![Comparación de la espera en cola y la utilización según el número de cajeros](estrategia_mejora_escenarios.png)
+
+#### Longitud promedio de la cola
+
+Para cada cajero, se suma el tiempo que los clientes pasaron esperando dentro de la ventana de observación y se divide entre la duración de esa ventana. La ventana comienza con la primera llegada después del corte y termina al finalizar la réplica. La medida excluye al cliente que está en servicio. El resultado se promedia entre los cajeros y las 71 réplicas de cada escenario.
+
+| Cajeros | Longitud promedio de la cola (clientes por cajero) |
+| ---: | ---: |
+| 3 | 3.355 |
+| 4 | 0.994 |
+| 5 | 0.525 |
